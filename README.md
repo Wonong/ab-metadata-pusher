@@ -1,2 +1,2 @@
 # ab-metadata-pusher
-Amundsen databuilder Based containerized Metadata Pusher
+Amundsen databuilder Based containerized Metadata Publisher
