@@ -1,4 +1,3 @@
-
 import pandas
 import csv
 import ctypes
@@ -7,18 +6,17 @@ import logging
 import time
 from os import listdir
 from os.path import isfile, join
-from jinja2 import Template
 
-from neo4j import GraphDatabase, Transaction
-import neo4j
-from neo4j.exceptions import CypherError, TransientError
+import json
+
 from pyhocon import ConfigFactory
 from pyhocon import ConfigTree
 from typing import Set, List
 
-from amundsen_databuilder.publisher.base_publisher import Publisher
-from amundsen_databuilder.publisher.neo4j_preprocessor import NoopRelationPreprocessor
+from databuilder.publisher.base_publisher import Publisher
 
+import boto3
+from botocore.config import Config
 
 # Setting field_size_limit to solve the error below
 # _csv.Error: field larger than field limit (131072)
@@ -41,14 +39,6 @@ AWS_SQS_SECRET_ACCESS_KEY = 'aws_sqs_secret_access_key'
 # This will be used to provide unique tag to the node and relationship
 JOB_PUBLISH_TAG = 'job_publish_tag'
 
-# Neo4j property name for published tag
-PUBLISHED_TAG_PROPERTY_NAME = 'published_tag'
-
-# Neo4j property name for last updated timestamp
-LAST_UPDATED_EPOCH_MS = 'publisher_last_updated_epoch_ms'
-
-RELATION_PREPROCESSOR = 'relation_preprocessor'
-
 # CSV HEADER
 # A header with this suffix will be pass to Neo4j statement without quote
 UNQUOTED_SUFFIX = ':UNQUOTED'
@@ -59,26 +49,8 @@ NODE_KEY_KEY = 'KEY'
 # Required columns for Node
 NODE_REQUIRED_KEYS = {NODE_LABEL_KEY, NODE_KEY_KEY}
 
-# Relationship relates two nodes together
-# Start node label
-RELATION_START_LABEL = 'START_LABEL'
-# Start node key
-RELATION_START_KEY = 'START_KEY'
-# End node label
-RELATION_END_LABEL = 'END_LABEL'
-# Node node key
-RELATION_END_KEY = 'END_KEY'
-# Type for relationship (Start Node)->(End Node)
-RELATION_TYPE = 'TYPE'
-# Type for reverse relationship (End Node)->(Start Node)
-RELATION_REVERSE_TYPE = 'REVERSE_TYPE'
-# Required columns for Relationship
-RELATION_REQUIRED_KEYS = {RELATION_START_LABEL, RELATION_START_KEY,
-                          RELATION_END_LABEL, RELATION_END_KEY,
-                          RELATION_TYPE, RELATION_REVERSE_TYPE}
-
 # TODO: Is it needed to declare aws sqs related variable in DEFAULT_CONFIG?
-DEFAULT_CONFIG = ConfigFactory.from_dict({RELATION_PREPROCESSOR: NoopRelationPreprocessor()})
+DEFAULT_CONFIG = ConfigFactory.from_dict({})
 
 # transient error retries and sleep time
 RETRIES_NUMBER = 5
@@ -87,19 +59,16 @@ SLEEP_TIME = 2
 LOGGER = logging.getLogger(__name__)
 
 
-class Neo4jCsvPublisher(Publisher):
+class AWSSQSCsvPublisher(Publisher):
     """
-    A Publisher takes two folders for input and publishes to Neo4j.
+    A Publisher takes two folders for input and publishes it as message to AWS SQS.
     One folder will contain CSV file(s) for Node where the other folder will contain CSV file(s) for Relationship.
-
-    Neo4j follows Label Node properties Graph and more information about this is in:
-    https://neo4j.com/docs/developer-manual/current/introduction/graphdb-concepts/
 
     #TODO User UNWIND batch operation for better performance
     """
 
     def __init__(self) -> None:
-        super(Neo4jCsvPublisher, self).__init__()
+        super(AWSSQSCsvPublisher, self).__init__()
 
     def init(self, conf: ConfigTree) -> None:
         conf = conf.with_fallback(DEFAULT_CONFIG)
@@ -111,6 +80,7 @@ class Neo4jCsvPublisher(Publisher):
         self._relation_files = self._list_files(conf, RELATION_FILES_DIR)
         self._relation_files_iter = iter(self._relation_files)
 
+        # TODO: these values below are needed?
         # config is list of node label.
         # When set, this list specifies a list of nodes that shouldn't be updated, if exists
         self.labels: Set[str] = set()
@@ -118,7 +88,10 @@ class Neo4jCsvPublisher(Publisher):
         if not self.publish_tag:
             raise Exception('{} should not be empty'.format(JOB_PUBLISH_TAG))
 
-        self._relation_preprocessor = conf.get(RELATION_PREPROCESSOR)
+
+        # Initialize AWS SQS client
+        self.client = self._get_client(conf=conf)
+        self.aws_sqs_url = conf.get_string(AWS_SQS_URL)
 
         LOGGER.info('Publishing Node csv files {}, and Relation CSV files {}'
                     .format(self._node_files, self._relation_files))
@@ -144,17 +117,15 @@ class Neo4jCsvPublisher(Publisher):
 
         start = time.time()
 
-        LOGGER.info('Creating indices using Node files: {}'.format(self._node_files))
-        for node_file in self._node_files:
-            self._create_indices(node_file=node_file)
-
         LOGGER.info('Publishing Node files: {}'.format(self._node_files))
+        nodes = []
+        relations = []
+
         try:
-            tx = self._session.begin_transaction()
             while True:
                 try:
                     node_file = next(self._node_files_iter)
-                    tx = self._publish_node(node_file, tx=tx)
+                    nodes.extend(self._publish_record(node_file))
                 except StopIteration:
                     break
 
@@ -162,280 +133,51 @@ class Neo4jCsvPublisher(Publisher):
             while True:
                 try:
                     relation_file = next(self._relation_files_iter)
-                    tx = self._publish_relation(relation_file, tx=tx)
+                    relations.extend(self._publish_record(relation_file))
                 except StopIteration:
                     break
 
-            tx.commit()
-            LOGGER.info('Committed total {} statements'.format(self._count))
+            LOGGER.info('Published total {} statements'.format(self._count))
 
             # TODO: Add statsd support
             LOGGER.info('Successfully published. Elapsed: {} seconds'.format(time.time() - start))
         except Exception as e:
-            LOGGER.exception('Failed to publish. Rolling back.')
-            if not tx.closed():
-                tx.rollback()
+            LOGGER.exception('Failed to publish.')
             raise e
+        
+        message_body = {
+            'nodes': nodes,
+            'relations': relations
+        }
+
+        self.client.send_message(
+            QueueUrl=self.aws_sqs_url,
+            MessageBody=json.dumps(message_body),
+            MessageGroupId='metadata'
+        )
 
     def get_scope(self) -> str:
-        return 'publisher.neo4j'
+        return 'publisher.awssqs'
 
-    def _create_indices(self, node_file: str) -> None:
+    def _publish_record(self, csv_file: str) -> list:
         """
-        Go over the node file and try creating unique index
-        :param node_file:
+        Iterate over the csv records of a file, each csv record transform to dict and will be added as an element of list.
+        All nodes and relations (in csv, each one is record) should have a unique key
+        
+        :param csv_file:
         :return:
         """
-        LOGGER.info('Creating indices. (Existing indices will be ignored)')
+        ret = []
 
-        with open(node_file, 'r', encoding='utf8') as node_csv:
-            for node_record in pandas.read_csv(node_csv, na_filter=False).to_dict(orient='records'):
-                label = node_record[NODE_LABEL_KEY]
-                if label not in self.labels:
-                    self._try_create_index(label)
-                    self.labels.add(label)
+        with open(csv_file, 'r', encoding='utf8') as record_csv:
+            for record in pandas.read_csv(record_csv, na_filter=False).to_dict(orient="records"):
+               ret.append(record)
 
-        LOGGER.info('Indices have been created.')
+        return ret
 
-    def _publish_node(self, node_file: str, tx: Transaction) -> Transaction:
-        """
-        Iterate over the csv records of a file, each csv record transform to Merge statement and will be executed.
-        All nodes should have a unique key, and this method will try to create unique index on the LABEL when it sees
-        first time within a job scope.
-        Example of Cypher query executed by this method:
-        MERGE (col_test_id1:Column {key: 'presto://gold.test_schema1/test_table1/test_id1'})
-        ON CREATE SET col_test_id1.name = 'test_id1',
-                      col_test_id1.order_pos = 2,
-                      col_test_id1.type = 'bigint'
-        ON MATCH SET col_test_id1.name = 'test_id1',
-                     col_test_id1.order_pos = 2,
-                     col_test_id1.type = 'bigint'
-
-        :param node_file:
-        :return:
-        """
-
-        with open(node_file, 'r', encoding='utf8') as node_csv:
-            for node_record in pandas.read_csv(node_csv, na_filter=False).to_dict(orient="records"):
-                stmt = self.create_node_merge_statement(node_record=node_record)
-                params = self._create_props_param(node_record)
-                tx = self._execute_statement(stmt, tx, params)
-        return tx
-
-    def is_create_only_node(self, node_record: dict) -> bool:
-        """
-        Check if node can be updated
-        :param node_record:
-        :return:
-        """
-        if self.create_only_nodes:
-            return node_record[NODE_LABEL_KEY] in self.create_only_nodes
-        else:
-            return False
-
-    def create_node_merge_statement(self, node_record: dict) -> str:
-        """
-        Creates node merge statement
-        :param node_record:
-        :return:
-        """
-        template = Template("""
-            MERGE (node:{{ LABEL }} {key: $KEY})
-            ON CREATE SET {{ PROP_BODY }}
-            {% if update %} ON MATCH SET {{ PROP_BODY }} {% endif %}
-        """)
-
-        prop_body = self._create_props_body(node_record, NODE_REQUIRED_KEYS, 'node')
-
-        return template.render(LABEL=node_record["LABEL"],
-                               PROP_BODY=prop_body,
-                               update=(not self.is_create_only_node(node_record)))
-
-    def _publish_relation(self, relation_file: str, tx: Transaction) -> Transaction:
-        """
-        Creates relation between two nodes.
-        (In Amundsen, all relation is bi-directional)
-
-        Example of Cypher query executed by this method:
-        MATCH (n1:Table {key: 'presto://gold.test_schema1/test_table1'}),
-              (n2:Column {key: 'presto://gold.test_schema1/test_table1/test_col1'})
-        MERGE (n1)-[r1:COLUMN]->(n2)-[r2:BELONG_TO_TABLE]->(n1)
-        RETURN n1.key, n2.key
-
-        :param relation_file:
-        :return:
-        """
-
-        if self._relation_preprocessor.is_perform_preprocess():
-            LOGGER.info('Pre-processing relation with {}'.format(self._relation_preprocessor))
-
-            count = 0
-            with open(relation_file, 'r', encoding='utf8') as relation_csv:
-                for rel_record in pandas.read_csv(relation_csv, na_filter=False).to_dict(orient="records"):
-                    # TODO not sure if deadlock on badge node arises in preporcessing or not
-                    stmt, params = self._relation_preprocessor.preprocess_cypher(
-                        start_label=rel_record[RELATION_START_LABEL],
-                        end_label=rel_record[RELATION_END_LABEL],
-                        start_key=rel_record[RELATION_START_KEY],
-                        end_key=rel_record[RELATION_END_KEY],
-                        relation=rel_record[RELATION_TYPE],
-                        reverse_relation=rel_record[RELATION_REVERSE_TYPE])
-
-                    if stmt:
-                        tx = self._execute_statement(stmt, tx=tx, params=params)
-                        count += 1
-
-            LOGGER.info('Executed pre-processing Cypher statement {} times'.format(count))
-
-        with open(relation_file, 'r', encoding='utf8') as relation_csv:
-            for rel_record in pandas.read_csv(relation_csv, na_filter=False).to_dict(orient="records"):
-                exception_exists = True
-                retries_for_exception = RETRIES_NUMBER
-                while exception_exists and retries_for_exception > 0:
-                    try:
-                        stmt = self.create_relationship_merge_statement(rel_record=rel_record)
-                        params = self._create_props_param(rel_record)
-                        tx = self._execute_statement(stmt, tx, params,
-                                                     expect_result=self._confirm_rel_created)
-                        exception_exists = False
-                    except TransientError as e:
-                        if rel_record[RELATION_START_LABEL] in self.deadlock_node_labels\
-                                or rel_record[RELATION_END_LABEL] in self.deadlock_node_labels:
-                            time.sleep(SLEEP_TIME)
-                            retries_for_exception -= 1
-                        else:
-                            raise e
-
-        return tx
-
-    def create_relationship_merge_statement(self, rel_record: dict) -> str:
-        """
-        Creates relationship merge statement
-        :param rel_record:
-        :return:
-        """
-        template = Template("""
-            MATCH (n1:{{ START_LABEL }} {key: $START_KEY}), (n2:{{ END_LABEL }} {key: $END_KEY})
-            MERGE (n1)-[r1:{{ TYPE }}]->(n2)-[r2:{{ REVERSE_TYPE }}]->(n1)
-            {% if update_prop_body %}
-            ON CREATE SET {{ prop_body }}
-            ON MATCH SET {{ prop_body }}
-            {% endif %}
-            RETURN n1.key, n2.key
-        """)
-
-        prop_body_r1 = self._create_props_body(rel_record, RELATION_REQUIRED_KEYS, 'r1')
-        prop_body_r2 = self._create_props_body(rel_record, RELATION_REQUIRED_KEYS, 'r2')
-        prop_body = ' , '.join([prop_body_r1, prop_body_r2])
-
-        return template.render(START_LABEL=rel_record["START_LABEL"],
-                               END_LABEL=rel_record["END_LABEL"],
-                               TYPE=rel_record["TYPE"],
-                               REVERSE_TYPE=rel_record["REVERSE_TYPE"],
-                               update_prop_body=prop_body_r1,
-                               prop_body=prop_body)
-
-    def _create_props_param(self, record_dict: dict) -> dict:
-        params = {}
-        for k, v in record_dict.items():
-            if k.endswith(UNQUOTED_SUFFIX):
-                k = k[:-len(UNQUOTED_SUFFIX)]
-            else:
-                v = '{val}'.format(val=v)
-
-            params[k] = v
-        return params
-
-    def _create_props_body(self,
-                           record_dict: dict,
-                           excludes: Set,
-                           identifier: str) -> str:
-        """
-        Creates properties body with params required for resolving template.
-
-        e.g: Note that node.key3 is not quoted if header has UNQUOTED_SUFFIX.
-        identifier.key1 = 'val1' , identifier.key2 = 'val2', identifier.key3 = val3
-
-        :param record_dict: A dict represents CSV row
-        :param excludes: set of excluded columns that does not need to be in properties (e.g: KEY, LABEL ...)
-        :param identifier: identifier that will be used in CYPHER query as shown on above example
-        :return: Properties body for Cypher statement
-        """
-        props = []
-        for k, v in record_dict.items():
-            if k in excludes:
-                continue
-
-            if k.endswith(UNQUOTED_SUFFIX):
-                k = k[:-len(UNQUOTED_SUFFIX)]
-
-            props.append('{id}.{key} = {val}'.format(id=identifier, key=k, val=f'${k}'))
-
-        props.append("""{id}.{key} = '{val}'""".format(id=identifier,
-                                                       key=PUBLISHED_TAG_PROPERTY_NAME,
-                                                       val=self.publish_tag))
-
-        props.append("""{id}.{key} = {val}""".format(id=identifier,
-                                                     key=LAST_UPDATED_EPOCH_MS,
-                                                     val='timestamp()'))
-
-        return ', '.join(props)
-
-    def _execute_statement(self,
-                           stmt: str,
-                           tx: Transaction,
-                           params: dict=None,
-                           expect_result: bool=False) -> Transaction:
-        """
-        Executes statement against Neo4j. If execution fails, it rollsback and raise exception.
-        If 'expect_result' flag is True, it confirms if result object is not null.
-        :param stmt:
-        :param tx:
-        :param count:
-        :param expect_result: By having this True, it will validate if result object is not None.
-        :return:
-        """
-        try:
-            if LOGGER.isEnabledFor(logging.DEBUG):
-                LOGGER.debug('Executing statement: {} with params {}'.format(stmt, params))
-
-            result = tx.run(str(stmt).encode('utf-8', 'ignore'), parameters=params)
-            if expect_result and not result.single():
-                raise RuntimeError('Failed to executed statement: {}'.format(stmt))
-
-            self._count += 1
-            if self._count > 1 and self._count % self._transaction_size == 0:
-                tx.commit()
-                LOGGER.info('Committed {} statements so far'.format(self._count))
-                return self._session.begin_transaction()
-
-            if self._count > 1 and self._count % self._progress_report_frequency == 0:
-                LOGGER.info('Processed {} statements so far'.format(self._count))
-
-            return tx
-        except Exception as e:
-            LOGGER.exception('Failed to execute Cypher query')
-            if not tx.closed():
-                tx.rollback()
-            raise e
-
-    def _try_create_index(self, label: str) -> None:
-        """
-        For any label seen first time for this publisher it will try to create unique index.
-        Neo4j ignores a second creation in 3.x, but raises an error in 4.x.
-        :param label:
-        :return:
-        """
-        stmt = Template("""
-            CREATE CONSTRAINT ON (node:{{ LABEL }}) ASSERT node.key IS UNIQUE
-        """).render(LABEL=label)
-
-        LOGGER.info('Trying to create index for label {label} if not exist: {stmt}'.format(label=label,
-                                                                                           stmt=stmt))
-        with self._driver.session() as session:
-            try:
-                session.run(stmt)
-            except CypherError as e:
-                if 'An equivalent constraint already exists' not in e.__str__():
-                    raise
-                # Else, swallow the exception, to make this function idempotent.
+    def _get_client(self, conf: ConfigTree) -> boto3.client:
+        return boto3.client('sqs',
+                            aws_access_key_id=conf.get_string(AWS_SQS_ACCESS_KEY_ID),
+                            aws_secret_access_key=conf.get_string(AWS_SQS_SECRET_ACCESS_KEY),
+                            config=Config(region_name='ap-northeast-2')
+        )

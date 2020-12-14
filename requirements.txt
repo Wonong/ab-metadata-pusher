@@ -1,1 +1,5 @@
 amundsen-databuilder>=4.0.0
+botocore
+boto3
+sqlalchemy>=1.3.0,<2.0
+mysqlclient
