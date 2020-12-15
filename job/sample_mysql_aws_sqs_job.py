@@ -1,6 +1,8 @@
 import sys
 import textwrap
 import uuid
+import logging, logging.config
+import os
 from pyhocon import ConfigFactory
 
 from databuilder.extractor.mysql_metadata_extractor import MysqlMetadataExtractor
@@ -10,23 +12,29 @@ from databuilder.loader.file_system_neo4j_csv_loader import FsNeo4jCSVLoader
 from databuilder.job.job import DefaultJob
 from databuilder.task.task import DefaultTask
 
-
 from publisher import aws_sqs_csv_puiblisher
 from publisher.aws_sqs_csv_puiblisher import AWSSQSCsvPublisher
 
-# TODO: AWS SQS url and credentials need to change
-aws_sqs_url = 'aws_sqs_url'
-aws_sqs_access_key_id = 'aws_sqs_access_key_id'
-aws_sqs_secret_access_key = 'aws_sqs_secret_access_key'
+logging_config_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../logging_config.ini')
+logging.config.fileConfig(logging_config_file_path)
+LOGGER = logging.getLogger()
 
+# TODO: AWS SQS url, region and credentials need to change
+AWS_SQS_REGION = os.getenv('AWS_SQS_REGION', 'ap-northeast-2')
+AWS_SQS_URL = os.getenv('AWS_SQS_URL', 'https://sqs.ap-northeast-2.amazonaws.com')
+AWS_SQS_ACCESS_KEY_ID = os.getenv('AWS_SQS_ACCESS_KEY_ID', '')
+AWS_SQS_SECRET_ACCESS_KEY = os.getenv('AWS_SQS_SECRET_ACCESS_KEY', '')
 
 # TODO: connection string needs to change
-def connection_string():
-    user = 'username'
-    host = 'localhost'
-    port = '3306'
-    db = 'mysql'
-    return "mysql://%s@%s:%s/%s" % (user, host, port, db)
+# Source DB configuration
+DATABASE_HOST = os.getenv('DATABASE_HOST', 'localhost')
+DATABASE_PORT = os.getenv('DATABASE_PORT', '3306')
+DATABASE_USER = os.getenv('DATABASE_USER', 'root')
+DATABASE_PASSWORD = os.getenv('DATABASE_PASSWORD', 'root')
+DATABASE_DB_NAME = os.getenv('DATABASE_DB_NAME', 'mysql')
+
+MYSQL_CONN_STRING = f'mysql+pymysql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_DB_NAME}'
+
 
 def run_mysql_job():
     where_clause_suffix = textwrap.dedent("""
@@ -43,7 +51,7 @@ def run_mysql_job():
         'extractor.mysql_metadata.{}'.format(MysqlMetadataExtractor.USE_CATALOG_AS_CLUSTER_NAME):
             True,
         'extractor.mysql_metadata.extractor.sqlalchemy.{}'.format(SQLAlchemyExtractor.CONN_STRING):
-            connection_string(),
+            MYSQL_CONN_STRING,
         'loader.filesystem_csv_neo4j.{}'.format(FsNeo4jCSVLoader.NODE_DIR_PATH):
             node_files_folder,
         'loader.filesystem_csv_neo4j.{}'.format(FsNeo4jCSVLoader.RELATION_DIR_PATH):
@@ -52,12 +60,14 @@ def run_mysql_job():
             node_files_folder,
         'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.RELATION_FILES_DIR):
             relationship_files_folder,
+        'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.AWS_SQS_REGION):
+            AWS_SQS_REGION,
         'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.AWS_SQS_URL):
-            aws_sqs_url,
+            AWS_SQS_URL,
         'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.AWS_SQS_ACCESS_KEY_ID):
-            aws_sqs_access_key_id,
+            AWS_SQS_ACCESS_KEY_ID,
         'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.AWS_SQS_SECRET_ACCESS_KEY):
-            aws_sqs_secret_access_key,
+            AWS_SQS_SECRET_ACCESS_KEY,
         'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.JOB_PUBLISH_TAG):
             'unique_tag',  # should use unique tag here like {ds}
     })
@@ -67,8 +77,6 @@ def run_mysql_job():
     return job
 
 if __name__ == "__main__":
-    # Uncomment next line to get INFO level logging
-    # logging.basicConfig(level=logging.INFO)
 
     mysql_job = run_mysql_job()
     mysql_job.launch()

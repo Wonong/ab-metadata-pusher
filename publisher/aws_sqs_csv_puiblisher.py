@@ -30,6 +30,7 @@ NODE_FILES_DIR = 'node_files_directory'
 RELATION_FILES_DIR = 'relation_files_directory'
 
 # AWS SQS config
+AWS_SQS_REGION = 'aws_sqs_region'
 # AWS SQS url to send a message
 AWS_SQS_URL = 'aws_sqs_url'
 # credential configuration of AWS SQS
@@ -50,13 +51,13 @@ NODE_KEY_KEY = 'KEY'
 NODE_REQUIRED_KEYS = {NODE_LABEL_KEY, NODE_KEY_KEY}
 
 # TODO: Is it needed to declare aws sqs related variable in DEFAULT_CONFIG?
-DEFAULT_CONFIG = ConfigFactory.from_dict({})
+# DEFAULT_CONFIG = ConfigFactory.from_dict({})
 
 # transient error retries and sleep time
 RETRIES_NUMBER = 5
 SLEEP_TIME = 2
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger()
 
 
 class AWSSQSCsvPublisher(Publisher):
@@ -71,9 +72,7 @@ class AWSSQSCsvPublisher(Publisher):
         super(AWSSQSCsvPublisher, self).__init__()
 
     def init(self, conf: ConfigTree) -> None:
-        conf = conf.with_fallback(DEFAULT_CONFIG)
 
-        self._count: int = 0
         self._node_files = self._list_files(conf, NODE_FILES_DIR)
         self._node_files_iter = iter(self._node_files)
 
@@ -137,24 +136,24 @@ class AWSSQSCsvPublisher(Publisher):
                 except StopIteration:
                     break
 
-            LOGGER.info('Published total {} statements'.format(self._count))
+            message_body = {
+                'nodes': nodes,
+                'relations': relations
+            }
+
+            LOGGER.info('Publish nodes and relationships to Queue {}'.format(self.aws_sqs_url))
+
+            self.client.send_message(
+                QueueUrl=self.aws_sqs_url,
+                MessageBody=json.dumps(message_body),
+                MessageGroupId='metadata'
+            )
 
             # TODO: Add statsd support
             LOGGER.info('Successfully published. Elapsed: {} seconds'.format(time.time() - start))
         except Exception as e:
             LOGGER.exception('Failed to publish.')
             raise e
-        
-        message_body = {
-            'nodes': nodes,
-            'relations': relations
-        }
-
-        self.client.send_message(
-            QueueUrl=self.aws_sqs_url,
-            MessageBody=json.dumps(message_body),
-            MessageGroupId='metadata'
-        )
 
     def get_scope(self) -> str:
         return 'publisher.awssqs'
@@ -179,5 +178,5 @@ class AWSSQSCsvPublisher(Publisher):
         return boto3.client('sqs',
                             aws_access_key_id=conf.get_string(AWS_SQS_ACCESS_KEY_ID),
                             aws_secret_access_key=conf.get_string(AWS_SQS_SECRET_ACCESS_KEY),
-                            config=Config(region_name='ap-northeast-2')
+                            config=Config(region_name=conf.get_string(AWS_SQS_REGION))
         )
