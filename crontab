@@ -1,1 +1,1 @@
-*/1 * * * * root . /app/shell/envs.sh; /app/shell/run_job.sh > /proc/1/fd/1 2 > /proc/1/fd/2
+$JOB_SCHEDULE root . /app/shell/envs.sh; /app/shell/run_job.sh > /proc/1/fd/1 2 > /proc/1/fd/2
