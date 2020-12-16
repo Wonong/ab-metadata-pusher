@@ -15,7 +15,7 @@ from databuilder.task.task import DefaultTask
 from publisher import aws_sqs_csv_puiblisher
 from publisher.aws_sqs_csv_puiblisher import AWSSQSCsvPublisher
 
-logging_config_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../logging_config.ini')
+logging_config_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../config/logging_config.ini')
 logging.config.fileConfig(logging_config_file_path)
 LOGGER = logging.getLogger()
 
