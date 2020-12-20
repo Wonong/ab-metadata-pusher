@@ -15,4 +15,4 @@ ADD crontab /etc/cron.d/pusher-cron
 RUN chmod 644 /etc/cron.d/pusher-cron
 
 RUN chmod +x /app/shell/bootstrap.sh
-CMD ["/app/shell/bootstrap.sh"]
+ENTRYPOINT ["/app/shell/bootstrap.sh"]
