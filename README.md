@@ -3,7 +3,7 @@ containerized metadata pusher using [Amundsendatabuilder](https://github.com/amu
 
 ## How to run
 (currently only mysql extractor and AWS SQS publisher work)
-commands below runs sample job on `job/sample_mysql_aws_sqs_job.py`
+commands below runs sample job on `job/sample_mysql_aws_sqs_job.py`.
 recommend using `.env` file rather than command line env.
 ```
 docker build -t ab-metadata-pusher -f pusher-crontab.Dockerfile .
