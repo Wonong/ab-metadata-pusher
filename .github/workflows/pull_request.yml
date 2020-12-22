@@ -10,6 +10,6 @@ jobs:
         with:
           python-version: 3.6.x
       - name: Check lint
-        uses: make lint
+        run: make lint
       - name: Check mypy
-        uses: make mypy
+        run: make mypy
