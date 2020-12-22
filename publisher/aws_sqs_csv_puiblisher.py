@@ -9,7 +9,6 @@ from os.path import isfile, join
 
 import json
 
-from pyhocon import ConfigFactory
 from pyhocon import ConfigTree
 from typing import Set, List
 
@@ -87,7 +86,6 @@ class AWSSQSCsvPublisher(Publisher):
         if not self.publish_tag:
             raise Exception('{} should not be empty'.format(JOB_PUBLISH_TAG))
 
-
         # Initialize AWS SQS client
         self.client = self._get_client(conf=conf)
         self.aws_sqs_url = conf.get_string(AWS_SQS_URL)
@@ -160,9 +158,9 @@ class AWSSQSCsvPublisher(Publisher):
 
     def _publish_record(self, csv_file: str) -> list:
         """
-        Iterate over the csv records of a file, each csv record transform to dict and will be added as an element of list.
+        Iterate over the csv records of a file, each csv record transform to dict and will be added to list.
         All nodes and relations (in csv, each one is record) should have a unique key
-        
+
         :param csv_file:
         :return:
         """
@@ -170,7 +168,7 @@ class AWSSQSCsvPublisher(Publisher):
 
         with open(csv_file, 'r', encoding='utf8') as record_csv:
             for record in pandas.read_csv(record_csv, na_filter=False).to_dict(orient="records"):
-               ret.append(record)
+                ret.append(record)
 
         return ret
 
@@ -179,4 +177,4 @@ class AWSSQSCsvPublisher(Publisher):
                             aws_access_key_id=conf.get_string(AWS_SQS_ACCESS_KEY_ID),
                             aws_secret_access_key=conf.get_string(AWS_SQS_SECRET_ACCESS_KEY),
                             config=Config(region_name=conf.get_string(AWS_SQS_REGION))
-        )
+                            )
