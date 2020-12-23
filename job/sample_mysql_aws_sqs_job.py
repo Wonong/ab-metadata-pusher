@@ -1,13 +1,11 @@
-import sys
 import textwrap
-import uuid
-import logging, logging.config
+import logging
+import logging.config
 import os
 from pyhocon import ConfigFactory
 
 from databuilder.extractor.mysql_metadata_extractor import MysqlMetadataExtractor
 from databuilder.extractor.sql_alchemy_extractor import SQLAlchemyExtractor
-from databuilder.extractor.neo4j_extractor import Neo4jExtractor
 from databuilder.loader.file_system_neo4j_csv_loader import FsNeo4jCSVLoader
 from databuilder.job.job import DefaultJob
 from databuilder.task.task import DefaultTask
@@ -33,10 +31,11 @@ DATABASE_USER = os.getenv('DATABASE_USER', 'root')
 DATABASE_PASSWORD = os.getenv('DATABASE_PASSWORD', 'root')
 DATABASE_DB_NAME = os.getenv('DATABASE_DB_NAME', 'mysql')
 
-MYSQL_CONN_STRING = f'mysql+pymysql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_DB_NAME}'
+MYSQL_CONN_STRING = \
+    f'mysql+pymysql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_DB_NAME}'
 
 
-def run_mysql_job():
+def run_mysql_job() -> DefaultJob:
     where_clause_suffix = textwrap.dedent("""
         where c.table_schema = 'mysql'
     """)
@@ -75,6 +74,7 @@ def run_mysql_job():
                      task=DefaultTask(extractor=MysqlMetadataExtractor(), loader=FsNeo4jCSVLoader()),
                      publisher=AWSSQSCsvPublisher())
     return job
+
 
 if __name__ == "__main__":
 
