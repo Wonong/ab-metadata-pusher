@@ -1,12 +1,7 @@
 #!/bin/bash
 
-get_config_properties() {
-    echo $(cat /app/config/docker.conf | pyhocon -f properties)
-}
-
 get_assigned_job() {
-    local CONFIG_PROPERTIES=$(get_config_properties)
-    echo $(echo "$CONFIG_PROPERTIES" | grep -w database.$TARGET_DB_TYPE.job.$TARGET_MESSAGE_QUEUE_TYPE | cut -d'=' -f2)
+    echo $((cat /app/config/docker.conf | pyhocon -f properties | grep database.$TARGET_DB_TYPE.job.$TARGET_MESSAGE_QUEUE_TYPE) | cut -d'=' -f2)
 }
 
 # configure job file path which will be executed by crontab

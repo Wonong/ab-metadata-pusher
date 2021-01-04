@@ -8,3 +8,4 @@ flake8==3.6.0
 flake8-tidy-imports>=1.1.0,<2.0
 isort[colors]~=5.4
 mypy==0.782
+psycopg2==2.8.6
