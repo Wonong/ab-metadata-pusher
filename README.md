@@ -7,7 +7,7 @@ containerized metadata pusher using [Amundsendatabuilder](https://github.com/amu
 Amundsendatabuilder is a **Pull patten** Metadata builder. So, it runs mostly on server-side cluster(like airflow) and keep DB credentials to access databases. Also, to access database, there should be no firewall issues between the database and server-side cluster.
 But, there are places where this method cannot be used due to problems such as firewalls and policies.
 
-`ab-metadata-pusher` is **Push pattern** databuilder which can be run in client-side cluster.
+`ab-metadata-pusher` is a **Push pattern** databuilder which can be run in client-side cluster.
 It just run ETL Task on client-side and publish result of task to message queue.
 It follow ETL concept of amundsendatabuilder and use those components as it used in amundsendatabuilder. But, its publisher has a different purpose, pushing extracted metadata to message queue.
 
