@@ -1,12 +1,10 @@
 """
-This file is a modified version of amundsendatabuilder's example script to used in this repo
+This file is a modified version of amundsendatabuilder's example bigquery job source code.
 This is a example script for extracting BigQuery usage results
 """
 import logging
 import logging.config
 import os
-import sqlite3
-import json
 
 from pyhocon import ConfigFactory
 
@@ -17,38 +15,25 @@ from databuilder.task.task import DefaultTask
 from databuilder.transformer.base_transformer import NoopTransformer
 
 from publisher import aws_sqs_csv_puiblisher
-from publisher.aws_sqs_csv_puiblisher import AWSSQSCsvPublisher, JOB_PUBLISH_TAG
+from publisher.aws_sqs_csv_puiblisher import AWSSQSCsvPublisher
 
 logging_config_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../config/logging_config.ini')
 logging.config.fileConfig(logging_config_file_path)
 LOGGER = logging.getLogger()
 
-# TODO: AWS SQS url, region and credentials need to change
 AWS_SQS_REGION = os.getenv('AWS_SQS_REGION', 'ap-northeast-2')
 AWS_SQS_URL = os.getenv('AWS_SQS_URL', 'https://sqs.ap-northeast-2.amazonaws.com')
 AWS_SQS_ACCESS_KEY_ID = os.getenv('AWS_SQS_ACCESS_KEY_ID', '')
 AWS_SQS_SECRET_ACCESS_KEY = os.getenv('AWS_SQS_SECRET_ACCESS_KEY', '')
 
-# Source DB configuration
+# Source Bigquery configuration
 PROJECT_ID_KEY = os.getenv('PROJECT_ID_KEY', 'gcp-project-id')
-CRED_KEY_PATH = os.getenv('CRED_KEY_PATH', 'gcp-cred-key-json-path')
-
-with open(CRED_KEY_PATH, 'r') as f:
-    CRED_KEY = f.read().replace('\n', '')
-
-
-def create_connection(db_file):
-    try:
-        conn = sqlite3.connect(db_file)
-        return conn
-    except Exception:
-        logging.exception('exception')
-    return None
+CRED_KEY = os.getenv('CRED_KEY', 'gcp-cred-key')
 
 
 # todo: Add a second model
-def create_bq_job(metadata_type, gcloud_project):
-    tmp_folder = f'/var/tmp/amundsen/{metadata_type}'
+def create_bq_job() -> DefaultJob:
+    tmp_folder = f'/var/tmp/amundsen/bigquery-metadata'
     node_files_folder = f'{tmp_folder}/nodes'
     relationship_files_folder = f'{tmp_folder}/relationships'
 
@@ -71,7 +56,8 @@ def create_bq_job(metadata_type, gcloud_project):
         f'publisher.awssqs.{aws_sqs_csv_puiblisher.AWS_SQS_URL}': AWS_SQS_URL,
         f'publisher.awssqs.{aws_sqs_csv_puiblisher.AWS_SQS_ACCESS_KEY_ID}': AWS_SQS_ACCESS_KEY_ID,
         f'publisher.awssqs.{aws_sqs_csv_puiblisher.AWS_SQS_SECRET_ACCESS_KEY}': AWS_SQS_SECRET_ACCESS_KEY,
-        f'publisher.awssqs.{aws_sqs_csv_puiblisher.JOB_PUBLISH_TAG}': 'unique_tag'  # should use unique tag here like {ds}
+        f'publisher.awssqs.{aws_sqs_csv_puiblisher.JOB_PUBLISH_TAG}':
+            'unique_tag'  # should use unique tag here like {ds}
     })
     job = DefaultJob(conf=job_config,
                      task=task,
@@ -81,5 +67,5 @@ def create_bq_job(metadata_type, gcloud_project):
 
 if __name__ == "__main__":
     # start table job
-    job1 = create_bq_job('bigquery_metadata', 'your-project-here')
-    job1.launch()
+    job = create_bq_job()
+    job.launch()
