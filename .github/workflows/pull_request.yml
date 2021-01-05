@@ -5,6 +5,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+      - name: Install dependencies
+        run: pip3 install -r requirements.txt
       - name: Check lint
         run: make lint
       - name: Check mypy
