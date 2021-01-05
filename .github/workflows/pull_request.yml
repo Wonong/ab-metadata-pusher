@@ -5,12 +5,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
-      - name: Setup python 3.6.x
-        uses: actions/setup-python@v1
-        with:
-          python-version: 3.6.x
-      - name: Install dependencies
-        run: pip3 install -r requirements.txt
       - name: Check lint
         run: make lint
       - name: Check mypy
