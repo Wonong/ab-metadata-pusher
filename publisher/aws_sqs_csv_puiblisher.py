@@ -1,6 +1,3 @@
-# Copyright Contributors to the Amundsen project.
-# SPDX-License-Identifier: Apache-2.0
-
 import csv
 import ctypes
 import json
@@ -9,7 +6,7 @@ import time
 from io import open
 from os import listdir
 from os.path import isfile, join
-from typing import List, Set
+from typing import List
 
 import boto3
 import pandas
