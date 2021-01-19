@@ -7,7 +7,7 @@ import uuid
 from databuilder.job.job import DefaultJob
 from databuilder.task.task import DefaultTask
 
-from elasicsearch import Elasticsearch
+from elasticsearch import Elasticsearch
 from databuilder.loader.file_system_elasticsearch_json_loader import FSElasticsearchJSONLoader
 from databuilder.extractor.neo4j_search_data_extractor import Neo4jSearchDataExtractor
 from databuilder.transformer.base_transformer import NoopTransformer
