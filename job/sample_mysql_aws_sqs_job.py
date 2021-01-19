@@ -10,8 +10,8 @@ from databuilder.loader.file_system_neo4j_csv_loader import FsNeo4jCSVLoader
 from databuilder.task.task import DefaultTask
 from pyhocon import ConfigFactory
 
-from publisher import aws_sqs_csv_puiblisher
-from publisher.aws_sqs_csv_puiblisher import AWSSQSCsvPublisher
+from publisher import aws_sqs_csv_publisher
+from publisher.aws_sqs_csv_publisher import AWSSQSCsvPublisher
 
 logging_config_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../config/logging_config.ini')
 logging.config.fileConfig(logging_config_file_path)
@@ -55,19 +55,19 @@ def run_mysql_job() -> DefaultJob:
             node_files_folder,
         'loader.filesystem_csv_neo4j.{}'.format(FsNeo4jCSVLoader.RELATION_DIR_PATH):
             relationship_files_folder,
-        'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.NODE_FILES_DIR):
+        'publisher.awssqs.{}'.format(aws_sqs_csv_publisher.NODE_FILES_DIR):
             node_files_folder,
-        'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.RELATION_FILES_DIR):
+        'publisher.awssqs.{}'.format(aws_sqs_csv_publisher.RELATION_FILES_DIR):
             relationship_files_folder,
-        'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.AWS_SQS_REGION):
+        'publisher.awssqs.{}'.format(aws_sqs_csv_publisher.AWS_SQS_REGION):
             AWS_SQS_REGION,
-        'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.AWS_SQS_URL):
+        'publisher.awssqs.{}'.format(aws_sqs_csv_publisher.AWS_SQS_URL):
             AWS_SQS_URL,
-        'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.AWS_SQS_ACCESS_KEY_ID):
+        'publisher.awssqs.{}'.format(aws_sqs_csv_publisher.AWS_SQS_ACCESS_KEY_ID):
             AWS_SQS_ACCESS_KEY_ID,
-        'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.AWS_SQS_SECRET_ACCESS_KEY):
+        'publisher.awssqs.{}'.format(aws_sqs_csv_publisher.AWS_SQS_SECRET_ACCESS_KEY):
             AWS_SQS_SECRET_ACCESS_KEY,
-        'publisher.awssqs.{}'.format(aws_sqs_csv_puiblisher.JOB_PUBLISH_TAG):
+        'publisher.awssqs.{}'.format(aws_sqs_csv_publisher.JOB_PUBLISH_TAG):
             'unique_tag',  # should use unique tag here like {ds}
     })
     job = DefaultJob(conf=job_config,
