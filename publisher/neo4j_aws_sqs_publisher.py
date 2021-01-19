@@ -110,10 +110,10 @@ DEFAULT_CONFIG = ConfigFactory.from_dict({NEO4J_TRANSCATION_SIZE: 500,
 LOGGER = logging.getLogger()
 
 
-class Neo4jMessageQueuePublisher(Publisher):
+class Neo4jAWSSQSPublisher(Publisher):
 
     def __init__(self) -> None:
-        super(Neo4jMessageQueuePublisher, self).__init__()
+        super(Neo4jAWSSQSPublisher, self).__init__()
 
     def init(self, conf: ConfigTree) -> None:
         conf = conf.with_fallback(DEFAULT_CONFIG)
