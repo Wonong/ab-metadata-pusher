@@ -47,7 +47,8 @@ class CustomizedJob(Job):
         pass
 
     def _init(self) -> None:
-        self.task.init(self.conf)
+        if self.task is not None:
+            self.task.init(self.conf)
 
     def launch(self) -> None:
         """
