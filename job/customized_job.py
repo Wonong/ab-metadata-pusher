@@ -1,5 +1,4 @@
-# Copyright Contributors to the Amundsen project.
-# SPDX-License-Identifier: Apache-2.0
+#   Customized version of amundsendatabuilder DefaultJob class
 
 import logging
 
