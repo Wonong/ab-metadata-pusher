@@ -11,8 +11,11 @@ COPY . /app
 RUN python setup.py install
 
 # cron
-ADD crontab /etc/cron.d/pusher-cron
-RUN chmod 644 /etc/cron.d/pusher-cron
+ADD crontab /etc/cron.d/cron
+RUN chmod 644 /etc/cron.d/cron
 
-RUN chmod +x /app/shell/bootstrap.sh
-ENTRYPOINT ["/app/shell/bootstrap.sh"]
+# RUN chmod +x /app/shell/bootstrap.sh
+# ENTRYPOINT ["/app/shell/bootstrap.sh"]
+RUN chmod +x /app/bootstrap.py
+RUN python /app/bootstrap.py
+ENTRYPOINT [ "cron -f" ]
